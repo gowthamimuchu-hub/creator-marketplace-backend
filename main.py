@@ -4,6 +4,7 @@ from database import engine, Base
 import models  # registers the tables
 from auth import router as auth_router
 from creators import router as creators_router
+from briefs import router as briefs_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -18,6 +19,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(creators_router)
+app.include_router(briefs_router)
 
 
 @app.get("/")
