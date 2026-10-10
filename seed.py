@@ -66,7 +66,8 @@ for i, (name, spec, rmin, rmax, bio, tools, vtools, skills, wfv, works) in enume
     email = f"seed{i}@creators.test"
     if db.query(User).filter(User.email == email).first():
         continue
-    u = User(email=email, password_hash=pwd.hash("secret123"), role="creator", is_verified=True)
+    u = User(email=email, username=f"creator_{i}", phone=f"+9190000000{i:02d}",
+             password_hash=pwd.hash("secret123"), role="creator", is_verified=True)
     db.add(u)
     db.flush()
     p = CreatorProfile(user_id=u.id, display_name=name, bio=bio, specialization=spec,
