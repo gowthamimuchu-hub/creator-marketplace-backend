@@ -1,7 +1,9 @@
 from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
+
 
 from database import get_db
 from models import (User, CreatorProfile, Tool, Skill, CreatorTool, CreatorSkill,
@@ -186,3 +188,76 @@ def list_tools(db: Session = Depends(get_db)):
 @router.get("/skills")
 def list_skills(db: Session = Depends(get_db)):
     return [s.name for s in db.query(Skill).order_by(Skill.name)]
+
+@router.get("/creators")
+def search_creators(
+    q: str | None = None,
+    tool: list[str] | None = Query(default=None),
+    skill: list[str] | None = Query(default=None),
+    specialization: str | None = None,
+    content_type: list[str] | None = Query(default=None),
+    verified: bool = False,
+    ai_only: bool = False,
+    min_rate: int | None = None,
+    max_rate: int | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=12, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    query = db.query(CreatorProfile)
+
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        query = query.filter(or_(
+            CreatorProfile.display_name.ilike(like),
+            CreatorProfile.bio.ilike(like),
+            CreatorProfile.specialization.ilike(like),
+            CreatorProfile.tools.any(CreatorTool.tool.has(Tool.name.ilike(like))),
+            CreatorProfile.skills.any(CreatorSkill.skill.has(Skill.name.ilike(like))),
+            CreatorProfile.portfolio.any(PortfolioItem.title.ilike(like)),
+        ))
+
+    if tool:  # several tools = match ANY of them
+        query = query.filter(or_(*[
+            CreatorProfile.tools.any(
+                CreatorTool.tool.has(func.lower(Tool.name) == t.strip().lower()))
+            for t in tool]))
+
+    if skill:  # several skills = match ANY of them
+        query = query.filter(or_(*[
+            CreatorProfile.skills.any(
+                CreatorSkill.skill.has(func.lower(Skill.name) == s.strip().lower()))
+            for s in skill]))
+
+    if specialization:
+        query = query.filter(CreatorProfile.specialization.ilike(specialization.strip()))
+
+    if content_type:
+        query = query.filter(CreatorProfile.portfolio.any(
+            PortfolioItem.content_type.in_([c.strip().lower() for c in content_type])))
+
+    if ai_only:
+        query = query.filter(CreatorProfile.portfolio.any(
+            PortfolioItem.is_ai_generated.is_(True)))
+
+    if verified:  # workflow verified AND at least one verified tool
+        query = query.filter(
+            CreatorProfile.workflow_verified.is_(True),
+            CreatorProfile.tools.any(CreatorTool.is_verified.is_(True)))
+
+    if min_rate is not None:  # creator's top rate must reach the brand's minimum
+        query = query.filter(CreatorProfile.rate_max >= min_rate)
+    if max_rate is not None:  # creator's lowest rate must fit the brand's maximum
+        query = query.filter(CreatorProfile.rate_min <= max_rate)
+
+    total = query.count()
+    rows = (query.order_by(CreatorProfile.id)
+                 .offset((page - 1) * page_size).limit(page_size).all())
+
+    return {
+        "results": [creator_out(p) for p in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "message": "" if total else "No creators match these filters. Try removing a filter.",
+    }
