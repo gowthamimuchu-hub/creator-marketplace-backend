@@ -15,7 +15,12 @@ if url.startswith("postgresql://"):
         1
     )
 
-engine = create_engine(url, connect_args=connect_args)
+engine = create_engine(
+    url,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+    pool_recycle=300
+)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
